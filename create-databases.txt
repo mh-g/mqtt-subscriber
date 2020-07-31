@@ -1,0 +1,4 @@
+rrdtool create /srv/dev-disk-by-label-DISK1/localdata/weather.rrd --step 3600 "DS:temperature:GAUGE:3600:U:U" "DS:pressure:GAUGE:3600:U:U" "DS:humidity:GAUGE:3600:U:U" "DS:battery:GAUGE:3600:U:U" "RRA:AVERAGE:0.99:1:168"
+
+rrdtool create /srv/dev-disk-by-label-DISK1/localdata/klima.rrd --step 3600 "DS:temperature:GAUGE:86400:U:U" "DS:pressure:GAUGE:86400:U:U" "DS:humidity:GAUGE:86400:U:U" "DS:battery:GAUGE:86400:U:U" "RRA:AVERAGE:0.99:24:3652" "RRA:MIN:0.99:24:3652" "RRA:MAX:0.99:24:3652"
+
