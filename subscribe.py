@@ -6,13 +6,18 @@ import paho.mqtt.client as mqtt
 import os
 import struct
 import rrdtool
+import argparse
+import sys
 
 temperature = -40.0
 pressure = 900.0
 humidity = 0.0
 battery = 2.5
+source = "outdoor"
+shortterm = "<invalid>"
+longterm = "<invalid>"
 
-def rtc_to_rrd(message):
+def rtc_to_rrd(message, source): # "source" is not yet supported
     print ("rtc_to_rrd")
     if (message[0] == 0x12) and (message[1] == 0x34) and (message[2] == 0xcd) and (message[3] == 0xef):
         def get_float(message, index):
@@ -39,7 +44,7 @@ def rtc_to_rrd(message):
     else:
         print ("rtc message malformed")
 
-def on_message_rrd(name, message):
+def on_message_rrd(name, message, source):
     try:
         global temperature
         global pressure
@@ -55,20 +60,25 @@ def on_message_rrd(name, message):
             humidity = value
         if name == "battery":
             battery = value
-        
-        rrdtool.update("/srv/dev-disk-by-label-DISK1/localdata/weather.rrd", f"N:{temperature}:{pressure}:{humidity}:{battery}")
-        rrdtool.update("/srv/dev-disk-by-label-DISK1/localdata/climate.rrd", f"N:{temperature}:{pressure}:{humidity}:{battery}")
+
+        rrdtool.update(shortterm, f"N:{temperature}:{pressure}:{humidity}:{battery}")
+        rrdtool.update(longterm, f"N:{temperature}:{pressure}:{humidity}:{battery}")
+
     except ProgrammingError as e:
         print ("Programming error ({0}): {1}".format(e.errno, e.strerror), flush=True)
     except OperationalError as e:
         print ("Operational error ({0}): {1}".format(e.errno, e.strerror), flush=True)
     print ("rrd done", flush=True);
-    
-def on_message_file(name, message):
+
+def on_message_file(name, message, source):
+    if (source == "outdoor"):
+        filename = "/tmp/weather"
+    elif (source == "indoor"):
+        filename = "/tmp/inkplate"
     try:
-        if not os.path.exists ("/tmp/weather"):
-            os.mkdir ("/tmp/weather")
-        f = open ("/tmp/weather/"+name, "w")
+        if not os.path.exists (filename):
+            os.mkdir (filename)
+        f = open (filename+"/"+name, "w")
         f.write (message)
         f.close()
     except IOError as e:
@@ -76,20 +86,46 @@ def on_message_file(name, message):
 
 def on_message(client, userdata, message):
     print ("incoming: ", message.topic, flush=True)
-    name = message.topic.split("/")[2]
+    if (source == "outdoor"): # /weather/xyz
+        name = message.topic.split("/")[2]
+    else: # /inkplate/out/xyz
+        name = message.topic.split("/")[3]
+
     print ("topic name:", name, flush=True)
     if (name != "rtc"):
         msg = str(message.payload.decode("utf-8"))
         print ("topic content:", msg, flush=True)
-        on_message_file(name, msg)
-        on_message_rrd(name, msg)
+        on_message_file(name, msg, source)
+        on_message_rrd(name, msg, source)
 #    else:
-#        rtc_to_rrd(message.payload)
+#        rtc_to_rrd(message.payload, source)
     print ("topic processed")
-    
+
 def on_connect(client, userdata, flags, rc):
     print ("subscribed", flush=True)
-    client.subscribe([('/weather/temperature', 0), ('/weather/humidity', 0), ('/weather/pressure', 0), ('/weather/battery', 0), ('/weather/rtc', 0)])
+    if source == "outdoor":
+        client.subscribe([('/weather/temperature', 0), ('/weather/humidity', 0), ('/weather/pressure', 0), ('/weather/battery', 0), ('/weather/rtc', 0)])
+    elif source == "indoor":
+        client.subscribe([('/inkplate/out/temperature', 0), ('/inkplate/out/humidity', 0), ('/inkplate/out/pressure', 0), ('/inkplate/out/battery', 0)])
+        
+
+# === main program =================================================
+
+parser = argparse.ArgumentParser()
+parser.add_argument ("source", default="outdoor")
+args = parser.parse_args()
+
+if args.source == "outdoor":
+    source = "outdoor"
+    shortterm = "/srv/dev-disk-by-label-DISK1/localdata/weather.rrd"
+    longterm = "/srv/dev-disk-by-label-DISK1/localdata/climate.rrd"
+elif args.source == "indoor":
+    source = "indoor"
+    shortterm = "/srv/dev-disk-by-label-DISK1/localdata/inkplate.rrd"
+    longterm = "/srv/dev-disk-by-label-DISK1/localdata/inkplate-longterm.rrd"
+else:
+    print ("Unknown source, exiting!\n")
+    sys.exit()
 
 BROKER_ADDRESS = "localhost"
 
